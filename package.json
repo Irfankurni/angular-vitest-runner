@@ -6,7 +6,7 @@
   "publisher": "angular-vitest",
   "repository": {
     "type": "git",
-    "url": "https://github.com/angular-vitest/angular-vitest-runner.git"
+    "url": "https://github.com/Irfankurni/angular-vitest-runner.git"
   },
   "license": "MIT",
   "engines": {
