@@ -1,0 +1,72 @@
+{
+  "name": "angular-vitest-runner",
+  "displayName": "Angular Vitest Runner",
+  "description": "Run and debug Angular Vitest tests directly from the VS Code Test Explorer using the Angular CLI.",
+  "version": "0.1.0",
+  "publisher": "angular-vitest",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angular-vitest/angular-vitest-runner.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Testing"
+  ],
+  "keywords": [
+    "angular",
+    "vitest",
+    "testing",
+    "test runner"
+  ],
+  "activationEvents": [
+    "workspaceContains:angular.json",
+    "onLanguage:typescript"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Angular Vitest Runner",
+      "properties": {
+        "angularVitestRunner.ngCliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the Angular CLI binary. Leave empty to use the workspace-local `./node_modules/.bin/ng`."
+        },
+        "angularVitestRunner.defaultArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional arguments to pass to `ng test` by default (e.g. [\"--no-cache\"])."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.125.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  }
+}
