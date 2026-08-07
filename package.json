@@ -3,7 +3,8 @@
   "displayName": "Angular Vitest Runner",
   "description": "Run and debug Angular Vitest tests directly from the VS Code Test Explorer using the Angular CLI.",
   "version": "0.1.0",
-  "publisher": "angular-vitest",
+  "publisher": "kuradev",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/Irfankurni/angular-vitest-runner.git"
@@ -47,9 +48,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "node esbuild.js --production",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "check-types": "tsc --noEmit",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
@@ -61,6 +63,7 @@
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1"
@@ -68,5 +71,8 @@
   "overrides": {
     "diff": "^8.0.4",
     "serialize-javascript": "^7.0.6"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }

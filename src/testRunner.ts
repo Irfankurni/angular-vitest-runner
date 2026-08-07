@@ -121,7 +121,18 @@ export class TestRunner {
         const parsed = parseRunOutput(
           result.stdout + '\n' + result.stderr,
           this.workspace.workspaceRoot,
+          (msg) => channel.appendLine(msg),
         );
+
+        // ── Diagnostic logging (visible in "Angular Vitest Runner" output) ──
+        log(`Phase 5: parsed ${parsed.cases.length} case(s), buildFailed=${parsed.buildFailed}`);
+        for (const c of parsed.cases) {
+          const errSnippet = c.errorMessage
+            ? c.errorMessage.slice(0, 120).replace(/\n/g, '↵')
+            : '(none)';
+          log(`  [${c.status}] "${c.fullTestName}" | file: ${c.filePath} | error: ${errSnippet}`);
+        }
+
         this.applyParsedResults(parsed, testRun, group.requestItems);
       }
     } catch (err) {
@@ -327,9 +338,11 @@ export class TestRunner {
       updated.add(testItem.id);
       matchedCount++;
 
+      const durationMs = parseDurationMs(caseResult.duration);
+
       switch (caseResult.status) {
         case 'passed':
-          testRun.passed(testItem);
+          testRun.passed(testItem, durationMs);
           break;
         case 'skipped':
           testRun.skipped(testItem);
@@ -342,7 +355,22 @@ export class TestRunner {
           if (testItem.uri && testItem.range) {
             msg.location = new vscode.Location(testItem.uri, testItem.range.start);
           }
-          testRun.failed(testItem, msg);
+          testRun.failed(testItem, msg, durationMs);
+
+          // Also append error details to the Test Results output,
+          // associated with this specific test item, so clicking on
+          // the test in the Test Results tab shows the error.
+          const outputText =
+            `\r\n❌ ${caseResult.fullTestName}\r\n` +
+            errText.replace(/\n/g, '\r\n') +
+            '\r\n';
+          testRun.appendOutput(
+            outputText,
+            testItem.uri && testItem.range
+              ? new vscode.Location(testItem.uri, testItem.range.start)
+              : undefined,
+            testItem,
+          );
           break;
         }
       }
@@ -364,9 +392,20 @@ export class TestRunner {
       if (allPassed) {
         testRun.passed(item);
       } else if (anyFailed) {
-        const failedCount = parsed.summary?.testsFailed ?? 0;
+        // Aggregate error messages from individual failed cases.
+        const failedCases = parsed.cases.filter((c) => c.status === 'failed');
+        const errorDetail = failedCases
+          .map((c) => {
+            const header = `✗ ${c.fullTestName}`;
+            return c.errorMessage
+              ? `${header}\n${c.errorMessage}`
+              : header;
+          })
+          .join('\n\n─────────────────────────────────────\n\n');
+
         const msg = new vscode.TestMessage(
-          `${failedCount} test(s) failed. See individual results in the test tree.`,
+          errorDetail ||
+            `${failedCases.length} test(s) failed. See the output channel for details.`,
         );
         testRun.failed(item, msg);
       } else if (parsed.cases.length === 0) {
@@ -383,5 +422,23 @@ export class TestRunner {
   private static escapeRegex(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Converts a Vitest duration string (e.g. "3ms", "1.5s") to milliseconds.
+ * Returns `undefined` if the string is falsy or unparseable.
+ */
+function parseDurationMs(duration?: string): number | undefined {
+  if (!duration) {
+    return undefined;
+  }
+  const m = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(duration.trim());
+  if (!m) {
+    return undefined;
+  }
+  const value = parseFloat(m[1]);
+  return m[2] === 's' ? value * 1000 : value;
 }
 

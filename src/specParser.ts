@@ -1,10 +1,11 @@
 /**
  * specParser.ts
  *
- * Phase 3 — AST Parser
+ * Phase 3 — Spec File Parser (regex + brace-depth, no TypeScript compiler API)
  *
- * Uses the TypeScript compiler API to statically analyze a `.spec.ts` file
- * and extract all `describe` / `it` / `test` call sites with their:
+ * Parses a `.spec.ts` file line by line using regular expressions and
+ * brace-depth tracking to extract all `describe` / `it` / `test` call sites
+ * with their:
  *  - label string
  *  - fully-qualified name (for --testNamePattern filtering)
  *  - 1-based line number (for VS Code range mapping)
@@ -12,11 +13,12 @@
  * Handles:
  *  - Nested describes (arbitrary depth)
  *  - Focused/skipped variants: fdescribe, xdescribe, fit, xit, xtest, ftest
- *  - `describe.each` / `it.each` patterns (base callee extracted)
+ *  - `describe.each` / `it.each` / `it.skip` / `it.only` patterns
  *  - Template-literal and variable test names are gracefully skipped
+ *
+ * Note: relies on the common convention that `describe('name', () => {` appears
+ * on a single line. Multi-line describe headers are gracefully ignored.
  */
-
-import * as ts from 'typescript';
 
 // ─── Public result types ──────────────────────────────────────────────────────
 
@@ -25,7 +27,7 @@ export interface ParsedCase {
   name: string;
   /**
    * Full name used for Vitest's `--testNamePattern`.
-   * Concatenates all ancestor describe labels and the test label with spaces:
+   * Concatenates all ancestor describe labels and the test label with spaces.
    * e.g. "Suite A Nested Suite my test name"
    */
   fullName: string;
@@ -56,22 +58,21 @@ export interface ParsedSpec {
   orphanCases: ParsedCase[];
 }
 
-// ─── Test function name sets ──────────────────────────────────────────────────
+// ─── Regex patterns ───────────────────────────────────────────────────────────
 
-const DESCRIBE_NAMES = new Set([
-  'describe',
-  'fdescribe', // focused (Jasmine)
-  'xdescribe', // skipped (Jasmine)
-]);
+/**
+ * Matches: describe / fdescribe / xdescribe (with optional .each / .skip / .only)
+ * Captures group 3: the string literal label (content between the quotes).
+ */
+const DESCRIBE_RE =
+  /\b(fdescribe|xdescribe|describe)\s*(?:\.(?:each|skip|only)\s*(?:\([^)]*\))?\s*)?\(\s*(['"`])((?:[^\\]|\\.)*?)\2/;
 
-const IT_NAMES = new Set([
-  'it',
-  'test',
-  'fit',   // focused (Jasmine)
-  'xit',   // skipped (Jasmine)
-  'xtest', // skipped (Vitest)
-  'ftest', // focused (Vitest)
-]);
+/**
+ * Matches: it / test / fit / xit / xtest / ftest (with optional .each / .skip / .only / .todo)
+ * Captures group 3: the string literal label (content between the quotes).
+ */
+const IT_RE =
+  /\b(fit|xit|xtest|ftest|it|test)\s*(?:\.(?:each|skip|only|todo)\s*(?:\([^)]*\))?\s*)?\(\s*(['"`])((?:[^\\]|\\.)*?)\2/;
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
@@ -79,179 +80,131 @@ const IT_NAMES = new Set([
  * Parses the given spec file content and returns the discovered test structure.
  * This is a pure, synchronous function — no I/O.
  */
-export function parseSpecFile(filePath: string, content: string): ParsedSpec {
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    content,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
-    ts.ScriptKind.TS,
-  );
+export function parseSpecFile(_filePath: string, content: string): ParsedSpec {
+  const lines = content.split('\n');
 
-  const { suites, cases } = visitBlock(sourceFile, sourceFile, []);
-  return { suites, orphanCases: cases };
+  interface StackFrame {
+    suite: ParsedSuite;
+    /** Brace depth recorded immediately after processing the describe's opening line. */
+    openDepth: number;
+  }
+
+  const stack: StackFrame[] = [];
+  let depth = 0;
+
+  const rootSuites: ParsedSuite[] = [];
+  const rootCases: ParsedCase[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const lineNum = i + 1;
+
+    // Pop any suites whose callback body we have exited.
+    // A suite opened at openDepth N is active while depth >= N.
+    while (stack.length > 0 && depth < stack[stack.length - 1].openDepth) {
+      stack.pop();
+    }
+
+    // Determine the current insertion targets.
+    const currentSuites =
+      stack.length > 0 ? stack[stack.length - 1].suite.nested : rootSuites;
+    const currentCases =
+      stack.length > 0 ? stack[stack.length - 1].suite.cases : rootCases;
+    const suiteNamePath = stack.map((f) => f.suite.name);
+
+    // ── Check for describe ────────────────────────────────────────────────────
+    const describeMatch = DESCRIBE_RE.exec(stripLineComment(raw));
+    if (describeMatch) {
+      const name = unescapeString(describeMatch[3]);
+      const fullName = [...suiteNamePath, name].join(' > ');
+      const suite: ParsedSuite = { name, fullName, line: lineNum, cases: [], nested: [] };
+      currentSuites.push(suite);
+
+      // Update depth FIRST, then push the frame so openDepth reflects the
+      // depth inside the callback body (after the opening `{`).
+      depth += netBraces(raw);
+      stack.push({ suite, openDepth: depth });
+      continue;
+    }
+
+    // ── Check for it / test ───────────────────────────────────────────────────
+    const itMatch = IT_RE.exec(stripLineComment(raw));
+    if (itMatch) {
+      const name = unescapeString(itMatch[3]);
+      // Vitest's --testNamePattern matches "<suite> <test>" (space-joined).
+      const fullName = [...suiteNamePath, name].join(' ');
+      currentCases.push({ name, fullName, line: lineNum });
+    }
+
+    // ── Update brace depth ────────────────────────────────────────────────────
+    depth += netBraces(raw);
+  }
+
+  return { suites: rootSuites, orphanCases: rootCases };
 }
 
-// ─── Recursive block visitor ──────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Walks the direct children of a `ts.SourceFile` or a `ts.Block` (the body of
- * a describe callback) and collects any `describe` / `it` / `test` calls.
- *
- * We deliberately do NOT recurse into function declarations or other
- * function-like nodes, so that private helper functions inside the spec file
- * are not mistakenly treated as test definitions.
+ * Strips everything from the first `//` line comment onwards,
+ * while being careful not to strip `//` inside string literals.
  */
-function visitBlock(
-  block: ts.Node,
-  sourceFile: ts.SourceFile,
-  suiteStack: string[],
-): { suites: ParsedSuite[]; cases: ParsedCase[] } {
-  const suites: ParsedSuite[] = [];
-  const cases: ParsedCase[] = [];
+function stripLineComment(line: string): string {
+  let inString = false;
+  let stringChar = '';
 
-  ts.forEachChild(block, (child) => {
-    // We only care about expression statements: `describe(...)`, `it(...)` etc.
-    if (!ts.isExpressionStatement(child)) {
-      return;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inString) {
+      if (ch === '\\') { i++; continue; } // escaped char
+      if (ch === stringChar) { inString = false; }
+      continue;
     }
-
-    const call = child.expression;
-    if (!ts.isCallExpression(call)) {
-      return;
+    if (ch === '/' && line[i + 1] === '/') {
+      return line.slice(0, i);
     }
-
-    const callee = extractCalleeName(call.expression);
-    if (!callee) {
-      return;
-    }
-
-    if (DESCRIBE_NAMES.has(callee)) {
-      const suite = parseDescribeCall(call, sourceFile, suiteStack);
-      if (suite) {
-        suites.push(suite);
-      }
-    } else if (IT_NAMES.has(callee)) {
-      const testCase = parseItCall(call, sourceFile, suiteStack);
-      if (testCase) {
-        cases.push(testCase);
-      }
-    }
-    // beforeEach, afterAll, etc. are silently ignored.
-  });
-
-  return { suites, cases };
-}
-
-// ─── Describe parser ──────────────────────────────────────────────────────────
-
-function parseDescribeCall(
-  call: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  suiteStack: string[],
-): ParsedSuite | undefined {
-  // describe(name, fn) → args[0] is the name, args[1] is the callback.
-  const label = extractStringArg(call, 0);
-  if (label === undefined) {
-    // Dynamic name (variable / expression) — skip this describe block.
-    return undefined;
-  }
-
-  const line = getLine(call, sourceFile);
-  const fullName = [...suiteStack, label].join(' > ');
-  const newStack = [...suiteStack, label];
-
-  // Extract the callback function (second argument).
-  const callbackArg = call.arguments[1];
-  let nested: ParsedSuite[] = [];
-  let nestedCases: ParsedCase[] = [];
-
-  if (
-    callbackArg &&
-    (ts.isFunctionExpression(callbackArg) || ts.isArrowFunction(callbackArg))
-  ) {
-    const fn = callbackArg as ts.FunctionExpression | ts.ArrowFunction;
-    // Only handle block bodies `() => { ... }`, not expression bodies `() => expr`.
-    if (ts.isBlock(fn.body)) {
-      const result = visitBlock(fn.body, sourceFile, newStack);
-      nested = result.suites;
-      nestedCases = result.cases;
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = true;
+      stringChar = ch;
     }
   }
-
-  return { name: label, fullName, line, cases: nestedCases, nested };
-}
-
-// ─── it / test parser ─────────────────────────────────────────────────────────
-
-function parseItCall(
-  call: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  suiteStack: string[],
-): ParsedCase | undefined {
-  const label = extractStringArg(call, 0);
-  if (label === undefined) {
-    // Dynamic test name — skip.
-    return undefined;
-  }
-
-  const line = getLine(call, sourceFile);
-  // Vitest's --testNamePattern matches against "<suite> <test>" (space-joined).
-  const fullName = [...suiteStack, label].join(' ');
-
-  return { name: label, fullName, line };
-}
-
-// ─── AST utility helpers ──────────────────────────────────────────────────────
-
-/**
- * Extracts the base callee identifier from an expression.
- *
- * Examples:
- *  - `describe`           → "describe"
- *  - `describe.each`      → "describe"
- *  - `it.skip`            → "it"
- *  - `something.describe` → "something" (not in our sets, safely ignored)
- */
-function extractCalleeName(expr: ts.Expression): string | undefined {
-  if (ts.isIdentifier(expr)) {
-    return expr.text;
-  }
-  if (
-    ts.isPropertyAccessExpression(expr) &&
-    ts.isIdentifier(expr.expression)
-  ) {
-    return expr.expression.text;
-  }
-  return undefined;
+  return line;
 }
 
 /**
- * Returns the string value of the `index`-th argument if it is a static
- * string literal or no-substitution template literal. Returns `undefined`
- * for any other expression (variables, concatenations, tagged templates, etc.).
+ * Counts the net number of `{` minus `}` on a single line,
+ * ignoring braces that appear inside string literals or line comments.
  */
-function extractStringArg(
-  call: ts.CallExpression,
-  index: number,
-): string | undefined {
-  const arg = call.arguments[index];
-  if (!arg) {
-    return undefined;
+function netBraces(line: string): number {
+  let open = 0;
+  let close = 0;
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inString) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === stringChar) { inString = false; }
+      continue;
+    }
+    if (ch === '/' && line[i + 1] === '/') { break; } // line comment
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === '{') { open++; }
+    if (ch === '}') { close++; }
   }
-  if (
-    ts.isStringLiteral(arg) ||
-    ts.isNoSubstitutionTemplateLiteral(arg)
-  ) {
-    return arg.text;
-  }
-  return undefined;
+
+  return open - close;
 }
 
 /**
- * Returns the 1-based line number for the start position of a node.
+ * Converts common escape sequences captured inside regex group back to
+ * their real characters (e.g. `\'` → `'`, `\\` → `\`).
  */
-function getLine(node: ts.Node, sourceFile: ts.SourceFile): number {
-  const pos = node.getStart(sourceFile);
-  return sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
+function unescapeString(s: string): string {
+  return s.replace(/\\(.)/g, '$1');
 }
