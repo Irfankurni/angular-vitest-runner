@@ -1,11 +1,11 @@
 /**
  * testRunner.ts
  *
- * Phase 4 + 5 — Run Handler
+ * Run Handler
  *
- * Phase 4: Maps TestRunRequest → RunGroups, spawns `ng test` child processes.
- * Phase 5: Parses Vitest verbose text output to map per-test pass/fail/skip
- *          status and error messages back to individual VS Code TestItems.
+ * Maps TestRunRequest → RunGroups, spawns `ng test` child processes,
+ * and parses Vitest verbose text output to map per-test pass/fail/skip
+ * status and error messages back to individual VS Code TestItems.
  */
 
 import * as path from 'path';
@@ -117,15 +117,15 @@ export class TestRunner {
           continue;
         }
 
-        // Phase 5: parse Vitest verbose output → per-test results.
+        // Parse Vitest verbose output → per-test results.
         const parsed = parseRunOutput(
           result.stdout + '\n' + result.stderr,
           this.workspace.workspaceRoot,
           (msg) => channel.appendLine(msg),
         );
 
-        // ── Diagnostic logging (visible in "Angular Vitest Runner" output) ──
-        log(`Phase 5: parsed ${parsed.cases.length} case(s), buildFailed=${parsed.buildFailed}`);
+        // ── Diagnostic logging (visible in "Angular Vitest Runner" output) ─
+        log(`Parsed ${parsed.cases.length} case(s), buildFailed=${parsed.buildFailed}`);
         for (const c of parsed.cases) {
           const errSnippet = c.errorMessage
             ? c.errorMessage.slice(0, 120).replace(/\n/g, '↵')
@@ -289,7 +289,7 @@ export class TestRunner {
     return this.ctrl.getProjectNameForFilePath(node.filePath);
   }
 
-  // ─── Phase 5: Result application ─────────────────────────────────────────────
+  // ─── Result application ───────────────────────────────────────────────────
 
   /**
    * Applies parsed Vitest output to the active TestRun.
@@ -343,9 +343,25 @@ export class TestRunner {
       switch (caseResult.status) {
         case 'passed':
           testRun.passed(testItem, durationMs);
+          // Show the test title in the Test Results output panel.
+          testRun.appendOutput(
+            `\r\n✅ ${caseResult.fullTestName}\r\n`,
+            testItem.uri && testItem.range
+              ? new vscode.Location(testItem.uri, testItem.range.start)
+              : undefined,
+            testItem,
+          );
           break;
         case 'skipped':
           testRun.skipped(testItem);
+          // Show the test title in the Test Results output panel.
+          testRun.appendOutput(
+            `\r\n⏭️ ${caseResult.fullTestName} (skipped)\r\n`,
+            testItem.uri && testItem.range
+              ? new vscode.Location(testItem.uri, testItem.range.start)
+              : undefined,
+            testItem,
+          );
           break;
         case 'failed': {
           const errText =
@@ -357,9 +373,7 @@ export class TestRunner {
           }
           testRun.failed(testItem, msg, durationMs);
 
-          // Also append error details to the Test Results output,
-          // associated with this specific test item, so clicking on
-          // the test in the Test Results tab shows the error.
+          // Show the test title and error details in the Test Results output panel.
           const outputText =
             `\r\n❌ ${caseResult.fullTestName}\r\n` +
             errText.replace(/\n/g, '\r\n') +
@@ -377,7 +391,7 @@ export class TestRunner {
     }
 
     log(
-      `Phase 5: ${matchedCount}/${parsed.cases.length} test case(s) matched to TestItems.`,
+      `${matchedCount}/${parsed.cases.length} test case(s) matched to TestItems.`,
     );
 
     // ── Fallback items (project / file / suite level) ────────────────────────

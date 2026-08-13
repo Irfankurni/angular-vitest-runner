@@ -1,14 +1,14 @@
 /**
  * testController.ts
  *
- * Phase 2 — VS Code Testing API Integration
+ * VS Code Testing API Integration
  *
  * Responsibilities:
  *  1. Create the `vscode.TestController` that drives the Test Explorer UI.
  *  2. Register Run and Debug profiles.
  *  3. Expose helpers for adding/removing TestItems that correspond to our
  *     internal ProjectNode / FileNode / SuiteNode / CaseNode models.
- *  4. Provide stub run/debug handlers (real execution wired in Phase 4).
+ *  4. Provide stub run/debug handlers (real execution wired in testRunner).
  */
 
 import * as vscode from 'vscode';
@@ -41,18 +41,16 @@ export class AngularVitestController {
 
   /**
    * Secondary lookup for test cases: `"<filePath>|<fullTestName>"` → TestItem.
-   * Populated by `upsertCaseItem`. Allows Phase 5 output-parser results to find
+   * Populated by `upsertCaseItem`. Allows output-parser results to find
    * their corresponding TestItems without knowing the line number.
    */
   private readonly caseNameMap = new Map<string, vscode.TestItem>();
 
   private readonly _disposables: vscode.Disposable[] = [];
 
-  // ── Run/Debug handlers (replaced by Phase 4 implementation) ──────────────
-
   /**
    * Pluggable handler for Run profile requests.
-   * Phase 4 will replace this with the real child_process runner.
+   * Replaced by the real child_process runner in testRunner.ts.
    */
   public runHandler: (
     request: vscode.TestRunRequest,
@@ -61,7 +59,6 @@ export class AngularVitestController {
 
   /**
    * Pluggable handler for Debug profile requests.
-   * Phase 6 will replace this with `vscode.debug.startDebugging`.
    */
   public debugHandler: (
     request: vscode.TestRunRequest,
@@ -100,8 +97,7 @@ export class AngularVitestController {
 
   /**
    * Populates the top-level TestItem tree with one item per Angular project.
-   * Called once during activation (Phase 1 workspace load) and again whenever
-   * angular.json changes.
+   * Called once during activation and again whenever angular.json changes.
    */
   populateFromWorkspace(workspace: AngularWorkspace): void {
     // Clear existing items before re-populating.
@@ -122,7 +118,7 @@ export class AngularVitestController {
         vscode.Uri.file(project.root),
       );
       item.description = project.vitestBuilder;
-      // Mark children as "not yet resolved" — Phase 3 (file watcher) fills them in.
+      // Mark children as "not yet resolved" — the file watcher fills them in.
       item.canResolveChildren = true;
 
       this.controller.items.add(item);
@@ -201,7 +197,7 @@ export class AngularVitestController {
     item.canResolveChildren = false;
     parentItem.children.add(item);
     this.nodeMap.set(node.id, node);
-    // Populate secondary lookup for Phase 5 output-parser result matching.
+    // Populate secondary lookup for output-parser result matching.
     this.caseNameMap.set(`${node.filePath}|${node.fullTestName}`, item);
     return item;
   }
@@ -251,7 +247,7 @@ export class AngularVitestController {
 
   /**
    * Finds the TestItem for a specific test case by file path and full test name.
-   * Used by Phase 5 to map parsed output results back to VS Code TestItems.
+   * Used by the output parser to map parsed results back to VS Code TestItems.
    *
    * @param filePath     Absolute path to the spec file.
    * @param fullTestName The full test name (suite + case, space-joined).
@@ -275,7 +271,7 @@ export class AngularVitestController {
   }
 }
 
-// ─── Stub handlers (replaced in Phase 4 / Phase 6) ───────────────────────────
+// ─── Stub handlers ──────────────────────────────────────────────────────────────────
 
 async function stubRunHandler(
   request: vscode.TestRunRequest,
@@ -284,11 +280,11 @@ async function stubRunHandler(
   const run = (request as any)._controller
     ? undefined
     : undefined;
-  // Phase 4 will wire up the real child_process runner here.
+  // Real runner is wired in testRunner.ts.
   void request;
   void token;
   vscode.window.showInformationMessage(
-    'Angular Vitest Runner: Test execution will be available in Phase 4.',
+    'Angular Vitest Runner: No run handler configured.',
   );
 }
 
@@ -296,11 +292,10 @@ async function stubDebugHandler(
   request: vscode.TestRunRequest,
   token: vscode.CancellationToken,
 ): Promise<void> {
-  // Phase 6 will wire up vscode.debug.startDebugging here.
   void request;
   void token;
   vscode.window.showInformationMessage(
-    'Angular Vitest Runner: Debug execution will be available in Phase 6.',
+    'Angular Vitest Runner: Debug execution is not yet available.',
   );
 }
 

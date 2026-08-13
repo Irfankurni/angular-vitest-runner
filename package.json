@@ -2,7 +2,7 @@
   "name": "angular-vitest-runner",
   "displayName": "Angular Vitest Runner",
   "description": "Run and debug Angular Vitest tests directly from the VS Code Test Explorer using the Angular CLI.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "kuradev",
   "icon": "images/icon.png",
   "repository": {

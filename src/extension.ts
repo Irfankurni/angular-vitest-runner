@@ -1,12 +1,13 @@
 /**
  * extension.ts — Entry point for the Angular Vitest Runner extension.
  *
- * Phase 1: Load angular.json, discover Vitest projects, build ProjectResolver.
- * Phase 2: Create the VS Code TestController, register Run/Debug profiles,
- *           and populate the top-level Test Explorer tree with Angular projects.
- * Phase 3: Run AST-based test discovery on all *.spec.ts files and watch for
- *           live file changes to keep the tree up-to-date.
- * Phase 4: Wire up the TestRunner so Run requests spawn real `ng test` processes.
+ * Activation steps:
+ *  1. Load angular.json, discover Vitest projects, build ProjectResolver.
+ *  2. Create the VS Code TestController, register Run/Debug profiles,
+ *     and populate the top-level Test Explorer tree with Angular projects.
+ *  3. Run AST-based test discovery on all *.spec.ts files and watch for
+ *     live file changes to keep the tree up-to-date.
+ *  4. Wire up the TestRunner so Run requests spawn real `ng test` processes.
  */
 import * as vscode from 'vscode';
 import { loadAngularWorkspace, AngularWorkspace } from './angularWorkspace';
@@ -16,7 +17,7 @@ import { TestDiscovery } from './testDiscovery';
 import { TestRunner } from './testRunner';
 import { log, warn, error, disposeOutputChannel, getOutputChannel } from './logger';
 
-// ─── Extension-level singletons (shared across phases) ────────────────────────
+// ─── Extension-level singletons ──────────────────────────────────────────────
 
 /** The parsed angular.json workspace. Available after activation. */
 export let angularWorkspace: AngularWorkspace | undefined;
@@ -24,13 +25,13 @@ export let angularWorkspace: AngularWorkspace | undefined;
 /** Resolves spec file paths to their owning Angular project. */
 export let projectResolver: ProjectResolver | undefined;
 
-/** The VS Code TestController + profile manager (Phase 2+). */
+/** The VS Code TestController + profile manager. */
 export let vitestController: AngularVitestController | undefined;
 
-/** Discovers spec files and keeps the Test Explorer tree live (Phase 3+). */
+/** Discovers spec files and keeps the Test Explorer tree live. */
 export let testDiscovery: TestDiscovery | undefined;
 
-/** Runs `ng test` child processes and updates VS Code test results (Phase 4+). */
+/** Runs `ng test` child processes and updates VS Code test results. */
 export let testRunner: TestRunner | undefined;
 
 // ─── Activation ───────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Surface the output channel so users can see it immediately.
   getOutputChannel().show(/* preserveFocus */ true);
 
-  // ── Phase 1: Load the Angular workspace ──────────────────────────────────
+  // ── Load the Angular workspace ────────────────────────────────────────────
   angularWorkspace = await loadAngularWorkspace();
 
   if (!angularWorkspace) {
@@ -61,25 +62,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
 
-  // ── Phase 1: Build the project resolver ──────────────────────────────────
+  // ── Build the project resolver ────────────────────────────────────────────
   projectResolver = new ProjectResolver(angularWorkspace);
   log(
     `ProjectResolver ready. Tracking ${angularWorkspace.projects.size} project(s): ` +
       angularWorkspace.allProjects().map((p) => p.name).join(', '),
   );
 
-  // ── Phase 2: Create the VS Code TestController ───────────────────────────
+  // ── Create the VS Code TestController ────────────────────────────────────
   vitestController = new AngularVitestController();
   vitestController.populateFromWorkspace(angularWorkspace);
   context.subscriptions.push({ dispose: () => vitestController?.dispose() });
   log('Test Explorer populated with Angular project nodes. ✓');
 
-  // ── Phase 4: Wire the TestRunner as the Run profile handler ──────────────
+  // ── Wire the TestRunner as the Run profile handler ────────────────────────
   testRunner = new TestRunner(angularWorkspace, vitestController);
   vitestController.runHandler = (req, token) => testRunner!.run(req, token);
   log('TestRunner wired to Run profile. ✓');
 
-  // ── Phase 3: Run AST test discovery + start file watcher ─────────────────
+  // ── Run AST test discovery + start file watcher ───────────────────────────
   testDiscovery = new TestDiscovery(projectResolver, vitestController);
   await testDiscovery.start(context.subscriptions);
   log('Test discovery running. ✓');
@@ -96,14 +97,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (angularWorkspace) {
         projectResolver = new ProjectResolver(angularWorkspace);
 
-        // Phase 2: re-populate project nodes in the tree.
+        // Re-populate project nodes in the tree.
         vitestController?.populateFromWorkspace(angularWorkspace);
 
-        // Phase 3: re-run discovery with the updated resolver.
+        // Re-run discovery with the updated resolver.
         testDiscovery = new TestDiscovery(projectResolver, vitestController!);
         await testDiscovery.start(context.subscriptions);
 
-        // Phase 4: rebuild the runner with the new workspace.
+        // Rebuild the runner with the new workspace.
         testRunner = new TestRunner(angularWorkspace, vitestController!);
         vitestController!.runHandler = (req, token) => testRunner!.run(req, token);
 

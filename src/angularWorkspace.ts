@@ -1,7 +1,7 @@
 /**
  * angularWorkspace.ts
  *
- * Phase 1 — Workspace Initialization & Context Mapping
+ * Workspace Initialization & Context Mapping
  *
  * Responsibilities:
  *  1. Locate and read the `angular.json` file in the workspace root.

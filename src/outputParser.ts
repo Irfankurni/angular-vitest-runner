@@ -1,7 +1,7 @@
 /**
  * outputParser.ts
  *
- * Phase 5 — Output Sanitization & Result Parsing
+ * Output Sanitization & Result Parsing
  *
  * Parses the raw stdout from `ng test` (using `@angular/build:unit-test`)
  * into a structured list of per-test results.

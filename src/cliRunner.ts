@@ -1,7 +1,7 @@
 /**
  * cliRunner.ts
  *
- * Phase 4 — Execution via Angular CLI (Child Process)
+ * Execution via Angular CLI (Child Process)
  *
  * Responsibilities:
  *  1. Locate the workspace-local Angular CLI binary (`./node_modules/.bin/ng`).
@@ -14,7 +14,7 @@
  * Note: `@angular/build:unit-test` runs Vitest programmatically and does not
  * expose `--testNamePattern` (or `--reporter`) as CLI-passable builder options.
  * File-level filtering via `--include` is supported; test-name filtering is
- * handled at the output-parsing layer (Phase 5) or via a Vitest config file.
+ * handled at the output-parsing layer.
  */
 
 import * as fs from 'fs';
@@ -41,7 +41,7 @@ export interface NgTestOptions {
    * ⚠️  `@angular/build:unit-test` does NOT expose `--testNamePattern` as a
    * CLI-level builder option. When set, this value is only logged so the user
    * knows what was requested; the actual filter cannot be applied at the CLI
-   * layer. Per-test filtering will be revisited in Phase 5/6.
+   * layer.
    */
   testNamePattern?: string;
   /**
@@ -100,7 +100,7 @@ export function resolveNgPath(workspaceRoot: string, override?: string): string 
  * Currently confirmed working: `--include` (file glob filter).
  *
  * `--testNamePattern` and `--reporter` are NOT in the schema — they are
- * omitted here. Per-test filtering will be explored in Phase 5/6.
+ * omitted here.
  *
  * @returns An array of string arguments (does NOT include the binary name).
  */

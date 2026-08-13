@@ -1,14 +1,14 @@
 /**
  * projectResolver.ts
  *
- * Phase 1 — Path Resolution Utility
+ * Path Resolution Utility
  *
  * Given an absolute path to a `.spec.ts` file, determine which Angular project
  * it belongs to by comparing the file path against each project's `root` and
  * `sourceRoot` directories.
  *
- * This is used in later phases to know which `ng test <project>` command to
- * invoke when the developer triggers a test run for a specific file.
+ * This is used to know which `ng test <project>` command to invoke when the
+ * developer triggers a test run for a specific file.
  */
 
 import * as path from 'path';

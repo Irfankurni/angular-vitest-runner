@@ -1,7 +1,7 @@
 /**
  * testItemModel.ts
  *
- * Phase 2 — Internal Test Item Hierarchy
+ * Internal Test Item Hierarchy
  *
  * Defines the data models that mirror the VS Code TestItem tree:
  *
@@ -13,8 +13,8 @@
  *
  * These are *our* internal models. Each carries the metadata needed to:
  *  - Build a stable, unique `vscode.TestItem` ID.
- *  - Map back to a source location for Code Lens (Phase 3).
- *  - Construct the correct `ng test` invocation (Phase 4).
+ *  - Map back to a source location for Code Lens.
+ *  - Construct the correct `ng test` invocation.
  */
 
 // ─── ID scheme ────────────────────────────────────────────────────────────────

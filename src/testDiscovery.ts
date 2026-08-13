@@ -1,7 +1,7 @@
 /**
  * testDiscovery.ts
  *
- * Phase 3 — Test Discovery & File Watcher
+ * Test Discovery & File Watcher
  *
  * Responsibilities:
  *  1. On activation: find all existing `*.spec.ts` files inside known Vitest

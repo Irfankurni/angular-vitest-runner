@@ -1,7 +1,7 @@
 /**
  * specParser.ts
  *
- * Phase 3 — Spec File Parser (regex + brace-depth, no TypeScript compiler API)
+ * Spec File Parser (regex + brace-depth, no TypeScript compiler API)
  *
  * Parses a `.spec.ts` file line by line using regular expressions and
  * brace-depth tracking to extract all `describe` / `it` / `test` call sites
