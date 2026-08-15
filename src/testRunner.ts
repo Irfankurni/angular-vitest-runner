@@ -312,9 +312,13 @@ export class TestRunner {
    *
    * Strategy:
    *  1. Build failure → mark all request items as failed with the build error.
-   *  2. Per-test results → look up each case via `findCaseByName` and mark it.
-   *  3. Fallback items (project/file level) → derive status from the parsed
-   *     summary or the set of case results.
+   *  2. Per-test case results → look up each case via `findCaseByName`, mark it
+   *     passed/failed/skipped, and append its output to the Test Results panel.
+   *  3. Roll-up → walk the TestItem tree upward from each request item, marking
+   *     every suite/file/project with an aggregated status derived from its
+   *     children, and appending a hierarchical child-list to the Test Results
+   *     panel so the user sees each test nested under its parent.
+   *  4. Edge-case fallback → if nothing was parsed, mark request items passed.
    */
   private applyParsedResults(
     parsed: ParsedRunResult,
@@ -333,7 +337,12 @@ export class TestRunner {
     }
 
     // ── Per-test case results ────────────────────────────────────────────────
-    const updated = new Set<string>();
+    /**
+     * Tracks which TestItem IDs are leaf case items and their final status.
+     * Used by rollUpItem() to determine parent statuses without re-querying
+     * the VS Code API (which has no "get current status" method).
+     */
+    const caseStatusMap = new Map<string, 'passed' | 'failed' | 'skipped'>();
     let matchedCount = 0;
 
     for (const caseResult of parsed.cases) {
@@ -351,54 +360,44 @@ export class TestRunner {
         continue;
       }
 
-      updated.add(testItem.id);
+      caseStatusMap.set(testItem.id, caseResult.status);
       matchedCount++;
 
       const durationMs = parseDurationMs(caseResult.duration);
+      const loc =
+        testItem.uri && testItem.range
+          ? new vscode.Location(testItem.uri, testItem.range.start)
+          : undefined;
 
       switch (caseResult.status) {
         case 'passed':
           testRun.passed(testItem, durationMs);
-          // Show the test title in the Test Results output panel.
-          testRun.appendOutput(
-            `\r\n✅ ${caseResult.fullTestName}\r\n`,
-            testItem.uri && testItem.range
-              ? new vscode.Location(testItem.uri, testItem.range.start)
-              : undefined,
-            testItem,
-          );
+          // Show just the local test name — the parent suite output will list
+          // all children, so no need to repeat the full suite path here.
+          testRun.appendOutput(`\r\n✅ ${testItem.label}\r\n`, loc, testItem);
           break;
+
         case 'skipped':
           testRun.skipped(testItem);
-          // Show the test title in the Test Results output panel.
           testRun.appendOutput(
-            `\r\n⏭️ ${caseResult.fullTestName} (skipped)\r\n`,
-            testItem.uri && testItem.range
-              ? new vscode.Location(testItem.uri, testItem.range.start)
-              : undefined,
+            `\r\n⏭️ ${testItem.label} (skipped)\r\n`,
+            loc,
             testItem,
           );
           break;
+
         case 'failed': {
           const errText =
             caseResult.errorMessage ||
             'Test failed. See the output channel for details.';
           const msg = new vscode.TestMessage(errText);
-          if (testItem.uri && testItem.range) {
-            msg.location = new vscode.Location(testItem.uri, testItem.range.start);
+          if (loc) {
+            msg.location = loc;
           }
           testRun.failed(testItem, msg, durationMs);
-
-          // Show the test title and error details in the Test Results output panel.
-          const outputText =
-            `\r\n❌ ${caseResult.fullTestName}\r\n` +
-            errText.replace(/\n/g, '\r\n') +
-            '\r\n';
           testRun.appendOutput(
-            outputText,
-            testItem.uri && testItem.range
-              ? new vscode.Location(testItem.uri, testItem.range.start)
-              : undefined,
+            `\r\n❌ ${testItem.label}\r\n${errText.replace(/\n/g, '\r\n')}\r\n`,
+            loc,
             testItem,
           );
           break;
@@ -406,43 +405,124 @@ export class TestRunner {
       }
     }
 
-    log(
-      `${matchedCount}/${parsed.cases.length} test case(s) matched to TestItems.`,
+    log(`${matchedCount}/${parsed.cases.length} test case(s) matched to TestItems.`);
+
+    // ── Roll up results to suite / file / project items ──────────────────────
+    // Walk from each request item downward. Every intermediate node (suite,
+    // file, project) is marked with the aggregated status of its children and
+    // receives hierarchical output so the Test Results panel shows each test
+    // nested under its parent suite.
+    for (const item of fallbackItems) {
+      this.rollUpItem(testRun, item, caseStatusMap);
+    }
+
+    // ── Edge-case fallback: nothing was parsed ───────────────────────────────
+    // When Vitest produces no parseable output (very unusual), mark request
+    // items as passed so they don't stay stuck in "running" state.
+    if (parsed.cases.length === 0) {
+      fallbackItems.forEach((item) => {
+        if (!caseStatusMap.has(item.id)) {
+          testRun.passed(item);
+        }
+      });
+    }
+  }
+
+  /**
+   * Recursively propagates case-level results up through the TestItem tree.
+   *
+   * Leaf case items:   already marked in the case loop — returns their status.
+   * Suite/file items:  aggregates children's statuses, marks the item, and
+   *                    appends a child-list to the Test Results output panel.
+   *
+   * Returns the aggregated status, or `null` when no cases ran under this item
+   * (so the caller knows not to apply a status to it).
+   */
+  private rollUpItem(
+    testRun: vscode.TestRun,
+    item: vscode.TestItem,
+    caseStatusMap: Map<string, 'passed' | 'failed' | 'skipped'>,
+  ): 'passed' | 'failed' | 'skipped' | null {
+    // ── Leaf case item: already marked above ─────────────────────────────────
+    if (caseStatusMap.has(item.id)) {
+      return caseStatusMap.get(item.id)!;
+    }
+
+    // ── No children: nothing ran under this item ─────────────────────────────
+    if (item.children.size === 0) {
+      return null;
+    }
+
+    // ── Recurse into children ────────────────────────────────────────────────
+    interface ChildResult {
+      label: string;
+      status: 'passed' | 'failed' | 'skipped';
+    }
+    const childResults: ChildResult[] = [];
+
+    item.children.forEach((child) => {
+      const status = this.rollUpItem(testRun, child, caseStatusMap);
+      if (status !== null) {
+        childResults.push({ label: child.label, status });
+      }
+    });
+
+    if (childResults.length === 0) {
+      return null; // No cases ran under any child.
+    }
+
+    // ── Aggregate status ─────────────────────────────────────────────────────
+    const aggregated: 'passed' | 'failed' | 'skipped' = childResults.some(
+      (c) => c.status === 'failed',
+    )
+      ? 'failed'
+      : childResults.some((c) => c.status === 'passed')
+      ? 'passed'
+      : 'skipped';
+
+    const loc =
+      item.uri && item.range
+        ? new vscode.Location(item.uri, item.range.start)
+        : undefined;
+
+    // ── Mark this item ───────────────────────────────────────────────────────
+    switch (aggregated) {
+      case 'passed':
+        testRun.passed(item);
+        break;
+      case 'failed': {
+        const failCount = childResults.filter((c) => c.status === 'failed').length;
+        testRun.failed(
+          item,
+          new vscode.TestMessage(`${failCount} child test(s) failed.`),
+        );
+        break;
+      }
+      case 'skipped':
+        testRun.skipped(item);
+        break;
+    }
+
+    // ── Append hierarchical output for the Test Results panel ────────────────
+    // When the user clicks this suite/file item in the Test Results view, they
+    // see its child tests listed with icons, nested one level below the parent.
+    const headerIcon =
+      aggregated === 'passed' ? '✅' : aggregated === 'failed' ? '❌' : '⏭️';
+    const childLines = childResults
+      .map((c) => {
+        const icon =
+          c.status === 'passed' ? '✅' : c.status === 'failed' ? '❌' : '⏭️';
+        return `  ${icon} ${c.label}`;
+      })
+      .join('\r\n');
+
+    testRun.appendOutput(
+      `${headerIcon} ${item.label}\r\n${childLines}\r\n`,
+      loc,
+      item,
     );
 
-    // ── Fallback items (project / file / suite level) ────────────────────────
-    const allPassed = parsed.cases.length > 0 &&
-      parsed.cases.every((c) => c.status === 'passed');
-    const anyFailed = parsed.cases.some((c) => c.status === 'failed');
-
-    for (const item of fallbackItems) {
-      if (updated.has(item.id)) {
-        continue; // Already handled as a case item.
-      }
-      if (allPassed) {
-        testRun.passed(item);
-      } else if (anyFailed) {
-        // Aggregate error messages from individual failed cases.
-        const failedCases = parsed.cases.filter((c) => c.status === 'failed');
-        const errorDetail = failedCases
-          .map((c) => {
-            const header = `✗ ${c.fullTestName}`;
-            return c.errorMessage
-              ? `${header}\n${c.errorMessage}`
-              : header;
-          })
-          .join('\n\n─────────────────────────────────────\n\n');
-
-        const msg = new vscode.TestMessage(
-          errorDetail ||
-            `${failedCases.length} test(s) failed. See the output channel for details.`,
-        );
-        testRun.failed(item, msg);
-      } else if (parsed.cases.length === 0) {
-        // Nothing was parsed from output (unusual).
-        testRun.passed(item);
-      }
-    }
+    return aggregated;
   }
 
   /**
