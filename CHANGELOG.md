@@ -4,7 +4,26 @@ All notable changes to the **Angular Vitest Runner** extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+## [1.0.0] - 2026-08-15
+
+### 🚀 First Stable Release
+
+- Promoted from pre-release track (`0.x.x`) to stable (`1.x.x`).
+- No functional changes from `0.1.1`; all features are stable and production-ready.
+
+> **Branch conventions going forward:**
+> - `develop` branch → pre-release versions (`0.x.x`), published with the *Pre-release* badge on the Marketplace.
+> - `master` branch → stable versions (`1.x.x` and above), published as normal releases.
+
+## [0.1.1]
+
+### Changed
+- Removed phase-based documentation references and bumped project version.
+
 ## [0.1.0] - 2026-08-06
+
 
 ### 🎉 Initial Release
 

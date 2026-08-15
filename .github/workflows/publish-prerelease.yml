@@ -1,0 +1,42 @@
+name: Publish Pre-release to VS Code Marketplace
+
+# Triggers on any tag starting with v0 (pre-release versions 0.x.x).
+# Also supports manual dispatch from the develop branch.
+on:
+  push:
+    tags:
+      - 'v0*'
+  workflow_dispatch:
+
+jobs:
+  publish-prerelease:
+    name: Publish Pre-release Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify version is pre-release (major == 0)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          if [ "$MAJOR" -ne 0 ]; then
+            echo "❌ Pre-release requires major version 0.x.x. Found: $VERSION"
+            echo "   Use the stable workflow (publish-stable.yml) for version $VERSION."
+            exit 1
+          fi
+          echo "✅ Pre-release version: $VERSION"
+
+      - name: Publish Pre-release Extension
+        run: npx @vscode/vsce publish --pre-release -p $VSCE_PAT
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

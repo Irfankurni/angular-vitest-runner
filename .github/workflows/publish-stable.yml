@@ -1,0 +1,43 @@
+name: Publish Stable Release to VS Code Marketplace
+
+# Triggers on any tag starting with v1, v2, v3, ... (stable versions 1.x.x and above)
+# Also supports manual dispatch and GitHub Release events.
+on:
+  push:
+    tags:
+      - 'v[1-9]*'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-stable:
+    name: Publish Stable Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify version is stable (major >= 1)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          if [ "$MAJOR" -lt 1 ]; then
+            echo "❌ Stable release requires major version >= 1. Found: $VERSION"
+            exit 1
+          fi
+          echo "✅ Stable version: $VERSION"
+
+      - name: Publish Stable Extension
+        run: npx @vscode/vsce publish -p $VSCE_PAT
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
