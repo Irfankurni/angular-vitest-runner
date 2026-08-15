@@ -4,7 +4,7 @@ All notable changes to the **Angular Vitest Runner** extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [Released]
 
 ## [1.0.0] - 2026-08-15
 
@@ -16,6 +16,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 > **Branch conventions going forward:**
 > - `develop` branch → pre-release versions (`0.x.x`), published with the *Pre-release* badge on the Marketplace.
 > - `master` branch → stable versions (`1.x.x` and above), published as normal releases.
+
+## [Unreleased]
 
 ## [0.1.1]
 
