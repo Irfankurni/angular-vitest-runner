@@ -61,8 +61,15 @@ export class TestRunner {
         return;
       }
 
-      // Mark all participating items as enqueued before spawning anything.
-      groups.forEach((g) => g.requestItems.forEach((item) => testRun.enqueued(item)));
+      // Mark all participating items (and their descendant case items) as enqueued
+      // before spawning anything. VS Code silently ignores passed()/failed() calls
+      // on any TestItem that was never enrolled in the run via enqueued().
+      groups.forEach((g) => {
+        g.requestItems.forEach((item) => {
+          testRun.enqueued(item);
+          collectDescendants(item).forEach((d) => testRun.enqueued(d));
+        });
+      });
 
       // Resolve the ng binary once (shared across all groups).
       const ngBinPath = resolveNgPath(
@@ -72,12 +79,18 @@ export class TestRunner {
 
       for (const group of groups) {
         if (token.isCancellationRequested) {
-          group.requestItems.forEach((item) => testRun.skipped(item));
+          group.requestItems.forEach((item) => {
+            testRun.skipped(item);
+            collectDescendants(item).forEach((d) => testRun.skipped(d));
+          });
           continue;
         }
 
-        // ── Mark as started ────────────────────────────────────────────────
-        group.requestItems.forEach((item) => testRun.started(item));
+        // ── Mark as started (request items + all descendants) ───────────────
+        group.requestItems.forEach((item) => {
+          testRun.started(item);
+          collectDescendants(item).forEach((d) => testRun.started(d));
+        });
 
         channel.appendLine(
           `\n${'─'.repeat(60)}\n` +
@@ -103,7 +116,10 @@ export class TestRunner {
 
         // ── Update UI ──────────────────────────────────────────────────────
         if (token.isCancellationRequested) {
-          group.requestItems.forEach((item) => testRun.skipped(item));
+          group.requestItems.forEach((item) => {
+            testRun.skipped(item);
+            collectDescendants(item).forEach((d) => testRun.skipped(d));
+          });
           continue;
         }
 
@@ -439,6 +455,24 @@ export class TestRunner {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Recursively collects all descendant TestItems under the given item.
+ *
+ * This is used to enqueue/start/skip every case item in the tree whenever
+ * a parent (file or project) item is selected for a run. VS Code only renders
+ * pass/fail icons for items that were enrolled via testRun.enqueued() before
+ * the run started — descendants that are never enrolled have their results
+ * silently dropped even when passed()/failed() is called on them later.
+ */
+function collectDescendants(item: vscode.TestItem): vscode.TestItem[] {
+  const result: vscode.TestItem[] = [];
+  item.children.forEach((child) => {
+    result.push(child);
+    result.push(...collectDescendants(child));
+  });
+  return result;
+}
 
 /**
  * Converts a Vitest duration string (e.g. "3ms", "1.5s") to milliseconds.
