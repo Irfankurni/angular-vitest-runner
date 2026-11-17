@@ -156,7 +156,10 @@ export function spawnNgTest(
 
   return new Promise<NgTestResult>((resolve) => {
     const proc = spawn(ngBin, args, {
-      cwd: options.workspaceRoot,
+      // VS Code reports Windows paths with a lowercase drive letter (d:\...). Vitest then sees the
+      // project root as `d:/` while Angular resolves `vitest` as `D:/`, so two Vitest instances are
+      // loaded and the run fails with "Vitest failed to find the runner".
+      cwd: options.workspaceRoot.replace(/^[a-z]:/, (drive) => drive.toUpperCase()),
       // Required on Windows where .bin entries are .cmd files.
       shell: process.platform === 'win32',
       // Inherit the parent environment so tools like nvm / volta work correctly.
